@@ -3,7 +3,8 @@
 // and Module 2 (Cards) with full approval workflow + governance.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
