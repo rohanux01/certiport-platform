@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+:root {
+  --background: #FCFCFD;
+  --foreground: #423D34;
+  --card: #FCFCFD;
+  --card-foreground: #423D34;
+  --primary: #423D34;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F2F5F7;
+  --muted: #F0F2F5;
+  --muted-foreground: #57616B;
+  --accent: #494BDF;
+  --accent-foreground: #FFFFFF;
+  --accent-secondary: #B8470A;
+  --success: #0A7B46;
+  --destructive: #C81E1E;
+  --border: #E0E6EB;
+  --ring: #494BDF;
+  --radius: 0.875rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: 'Poppins', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Poppins', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* SEED Design Theme utilities (v1.0) */
+.shadow-premium {
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.07), 0 4px 12px -4px rgba(0, 0, 0, 0.04);
+}
+.shadow-premium-hover {
+  box-shadow: 0 20px 40px -15px rgba(73, 75, 223, 0.12), 0 8px 16px -6px rgba(0, 0, 0, 0.06);
+}
+.shadow-premium-xl {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+}
+.shadow-glow {
+  box-shadow: 0 0 25px 2px rgba(73, 75, 223, 0.35);
+}
+.text-accent {
+  color: #494BDF;
+}
+.bg-accent {
+  background-color: #494BDF;
+}
+.border-accent {
+  border-color: #494BDF;
+}
+.bg-accent-secondary {
+  background-color: #B8470A;
+}
+.text-accent-secondary {
+  color: #B8470A;
+}
