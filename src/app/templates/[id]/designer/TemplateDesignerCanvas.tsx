@@ -1322,6 +1322,7 @@ export default function TemplateDesignerCanvas({
   };
 
   // Decompose HTML into editable FieldLayoutItem elements
+  // Decompose HTML + CSS into editable FieldLayoutItem elements with style & layer mapping
   const decomposeHtml = (htmlText: string): FieldLayoutItem[] => {
     const items: FieldLayoutItem[] = [];
     const seenIds = new Set<string>();
@@ -1331,6 +1332,26 @@ export default function TemplateDesignerCanvas({
       const doc = parser.parseFromString(htmlText, "text/html");
       const body = doc.body;
       if (!body) return [];
+
+      // Extract CSS rules from embedded <style> tags
+      const cssStyles: Record<string, Record<string, string>> = {};
+      const styleTags = doc.querySelectorAll("style");
+      styleTags.forEach((st) => {
+        const cssText = st.textContent || "";
+        const rules = cssText.match(/([^{]+)\{([^}]+)\}/g) || [];
+        rules.forEach((rule) => {
+          const parts = rule.split("{");
+          if (parts.length === 2) {
+            const selector = parts[0].trim().replace(".", "");
+            const decls = parts[1].replace("}", "").split(";");
+            cssStyles[selector] = cssStyles[selector] || {};
+            decls.forEach((decl) => {
+              const [k, v] = decl.split(":").map((s) => s?.trim());
+              if (k && v) cssStyles[selector][k] = v;
+            });
+          }
+        });
+      });
 
       // Also check for embedded SVG in the HTML
       const svgElements = body.querySelectorAll("svg");
@@ -1344,7 +1365,14 @@ export default function TemplateDesignerCanvas({
 
       const walkHtml = (el: Element) => {
         const tag = el.tagName.toLowerCase();
-        const style = (el as HTMLElement).style;
+        const inlineStyle = (el as HTMLElement).style;
+        const className = el.getAttribute("class") || "";
+        const classRules = cssStyles[className] || cssStyles[tag] || {};
+
+        // Helper to get CSS property from inline style or parsed CSS
+        const getCssProp = (propName: string, fallback: string = ""): string => {
+          return inlineStyle?.getPropertyValue(propName) || classRules[propName] || fallback;
+        };
 
         // Skip script, style, svg (already handled), meta tags
         if (["script", "style", "svg", "meta", "link", "head", "br", "hr"].includes(tag)) {
@@ -1360,8 +1388,8 @@ export default function TemplateDesignerCanvas({
               height: 2,
               itemType: "shape",
               shapeType: "line",
-              borderColor: "#CBD5E1",
-              borderWidth: 2,
+              borderColor: getCssProp("border-color", "#CBD5E1"),
+              borderWidth: parseNum(getCssProp("border-width"), 2),
               zIndex: items.length + 1,
             });
             yOffset += 5;
@@ -1378,12 +1406,12 @@ export default function TemplateDesignerCanvas({
             label: el.getAttribute("alt") || `Image ${items.length + 1}`,
             left: 50,
             top: yOffset,
-            width: 25,
-            height: 20,
+            width: parseNum(getCssProp("width"), 25),
+            height: parseNum(getCssProp("height"), 20),
             itemType: "photo",
             photoType: "custom",
             imageUrl: src.startsWith("data:") || src.startsWith("http") ? src : undefined,
-            borderRadius: 4,
+            borderRadius: parseNum(getCssProp("border-radius"), 4),
             zIndex: items.length + 1,
           });
           yOffset += 22;
@@ -1397,26 +1425,25 @@ export default function TemplateDesignerCanvas({
           .join(" ")
           .trim();
 
-        // Check for variable placeholders in text
-        const hasChildren = el.children.length > 0;
-
         if (directText && directText.length > 0) {
-          // Determine styling from tag and inline styles
+          // Determine styling from tag, inline styles, and CSS classes
           const isHeading = /^h[1-6]$/.test(tag);
-          const isSpan = tag === "span" || tag === "label";
-          const isP = tag === "p";
-
           let fontSize = 14;
           if (tag === "h1") fontSize = 28;
           else if (tag === "h2") fontSize = 22;
           else if (tag === "h3") fontSize = 18;
           else if (tag === "h4") fontSize = 16;
           else if (tag === "h5" || tag === "h6") fontSize = 13;
-          else if (style?.fontSize) fontSize = parseNum(style.fontSize.replace("px", "").replace("pt", "").replace("em", ""), fontSize);
 
-          const fontColor = parseColor(style?.color || el.getAttribute("color"), "#0F172A");
-          const fontWeight = style?.fontWeight || (isHeading ? "bold" : "normal");
-          const textAlign = (style?.textAlign || "left") as "left" | "center" | "right";
+          const rawFontSize = getCssProp("font-size");
+          if (rawFontSize) {
+            fontSize = parseNum(rawFontSize.replace("px", "").replace("pt", "").replace("em", ""), fontSize);
+          }
+
+          const fontColor = parseColor(getCssProp("color") || el.getAttribute("color"), "#0F172A");
+          const fontWeight = getCssProp("font-weight") || (isHeading ? "bold" : "normal");
+          const textAlign = (getCssProp("text-align") || "left") as "left" | "center" | "right";
+          const fontFamily = getCssProp("font-family") || "Inter, sans-serif";
 
           // Check if text contains template variables
           const varMatch = directText.match(/\{\{(\w+)\}\}|\$\{(\w+)\}/);
@@ -1435,8 +1462,8 @@ export default function TemplateDesignerCanvas({
             top: yOffset,
             fontSize,
             fontColor,
-            fontStyle: (fontWeight === "bold" || fontWeight === "700" || parseInt(fontWeight as string) >= 600) ? "bold" : "normal",
-            fontFamily: style?.fontFamily || "Inter, sans-serif",
+            fontStyle: (fontWeight === "bold" || fontWeight === "700" || parseInt(fontWeight) >= 600) ? "bold" : "normal",
+            fontFamily,
             textAlign,
             itemType: isField ? "field" : "text",
             zIndex: items.length + 1,
@@ -1447,9 +1474,9 @@ export default function TemplateDesignerCanvas({
 
         // Div/section with background color but no text → treat as shape
         if (!directText && (tag === "div" || tag === "section" || tag === "header" || tag === "footer" || tag === "aside" || tag === "nav")) {
-          const bgColor = style?.backgroundColor || style?.background || "";
-          const border = style?.border || "";
-          const borderRadius = style?.borderRadius || "";
+          const bgColor = getCssProp("background-color") || getCssProp("background") || "";
+          const border = getCssProp("border") || getCssProp("border-color") || "";
+          const borderRadius = getCssProp("border-radius") || "";
 
           if (bgColor && bgColor !== "transparent" && bgColor !== "inherit") {
             const id = makeUniqueId("div_shape", seenIds);
@@ -1486,7 +1513,7 @@ export default function TemplateDesignerCanvas({
     return items;
   };
 
-  // Unified extraction function for live preview
+  // Unified extraction function for live preview & file parsing
   const extractFieldsFromText = (text: string, type: "html" | "svg" | "json"): FieldLayoutItem[] => {
     if (!text.trim()) return [];
 
@@ -1504,8 +1531,53 @@ export default function TemplateDesignerCanvas({
       return decomposeSvg(text);
     }
 
-    // HTML
+    // HTML + CSS
     return decomposeHtml(text);
+  };
+
+  // File Import Handler for HTML, CSS, SVG, PDF, JSON files
+  const handleImportFileSelect = async (file: File) => {
+    setBgUploadError(null);
+    const fileName = file.name.toLowerCase();
+
+    try {
+      if (fileName.endsWith(".pdf")) {
+        const pdfRes = await renderPdfToDataUrl(file);
+        setCurrentBgUrl(pdfRes.dataUrl);
+
+        // Auto-detect orientation from PDF dimensions if available
+        if (pdfRes.width && pdfRes.height) {
+          if (pdfRes.width > pdfRes.height) setOrientation("LANDSCAPE");
+          else setOrientation("PORTRAIT");
+        }
+
+        // Generate smart layer placeholders for PDF certificates/cards
+        const pdfPresetFields: FieldLayoutItem[] = [
+          { fieldId: "recipientName", label: "Recipient Name", left: 50, top: 44, fontSize: 24, fontColor: "#1E3A8A", fontStyle: "bold", textAlign: "center", itemType: "field", zIndex: 10 },
+          { fieldId: "courseName", label: "Program Name", left: 50, top: 56, fontSize: 16, fontColor: "#0F172A", fontStyle: "bold", textAlign: "center", itemType: "field", zIndex: 11 },
+          { fieldId: "certificateRef", label: "Certificate Ref", left: 82, top: 88, fontSize: 11, fontColor: "#64748B", fontStyle: "normal", textAlign: "right", itemType: "field", zIndex: 12 },
+          { fieldId: "issueDate", label: "Date of Issue", left: 18, top: 88, fontSize: 11, fontColor: "#64748B", fontStyle: "normal", textAlign: "left", itemType: "field", zIndex: 13 },
+          { fieldId: "qrCode", label: "Verification QR", left: 50, top: 80, fontSize: 12, fontColor: "#0F172A", fontStyle: "normal", textAlign: "center", itemType: "field", zIndex: 14 },
+        ];
+
+        commitToHistory([...currentFields, ...pdfPresetFields]);
+        showToast("PDF artwork & field layers imported!");
+      } else {
+        const text = await file.text();
+        let fmt: "html" | "svg" | "json" = "html";
+        if (fileName.endsWith(".svg")) fmt = "svg";
+        else if (fileName.endsWith(".json")) fmt = "json";
+        else if (fileName.endsWith(".html") || fileName.endsWith(".htm") || fileName.endsWith(".css")) fmt = "html";
+
+        setImportCodeType(fmt);
+        setImportCodeText(text);
+        const fields = extractFieldsFromText(text, fmt);
+        setDetectedImportFields(fields);
+        showToast(`Imported ${file.name} (${fields.length} layers extracted)`);
+      }
+    } catch (err: any) {
+      setBgUploadError("Failed to parse file: " + err.message);
+    }
   };
 
   // Re-detect fields when code input changes
@@ -3289,6 +3361,25 @@ export default function TemplateDesignerCanvas({
               <button onClick={() => setShowImportModal(false)} className="text-gray-400 hover:text-gray-600 text-lg">✕</button>
             </div>
 
+            {/* File Dropzone / Picker */}
+            <div className="p-3 bg-[#F8F9FA] rounded-2xl border border-dashed border-[#CBD5E1] hover:border-[#FF5B37] flex flex-col items-center justify-center gap-1.5 transition-all text-center">
+              <span className="text-xl">📁</span>
+              <span className="text-xs font-bold text-[#0F172A]">Drag & Drop or Choose File</span>
+              <span className="text-[10px] text-[#64748B]">Supports .html, .css, .svg, .pdf, or .json files</span>
+              <label className="mt-1 px-3.5 py-1.5 rounded-xl bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] text-xs font-bold text-[#0F172A] cursor-pointer shadow-2xs transition-all">
+                <span>Browse File</span>
+                <input
+                  type="file"
+                  accept=".html,.htm,.css,.svg,.pdf,.json"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImportFileSelect(f);
+                  }}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
             <div className="flex bg-[#F3F4F6] p-1 rounded-xl">
               {(["html", "svg", "json"] as const).map((fmt) => (
                 <button
@@ -3303,10 +3394,10 @@ export default function TemplateDesignerCanvas({
             </div>
 
             <textarea
-              rows={6}
+              rows={5}
               value={importCodeText}
               onChange={(e) => setImportCodeText(e.target.value)}
-              placeholder={`Paste your ${importCodeType.toUpperCase()} code here...`}
+              placeholder={`Or paste raw ${importCodeType.toUpperCase()} code here...`}
               className="w-full font-mono text-xs p-3 rounded-xl border border-[#E5E7EB] bg-[#F8F9FA] focus:bg-white outline-none"
             />
 
@@ -3314,17 +3405,17 @@ export default function TemplateDesignerCanvas({
             <div className="p-3 bg-[#F8F9FA] rounded-2xl border border-[#E5E7EB]">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-[#0F172A] flex items-center gap-1.5">
-                  <span>⚡ Detected Elements:</span>
+                  <span>⚡ Extracted Layers & Styles:</span>
                   <span className="bg-[#FF5B37] text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full font-mono">
                     {detectedImportFields.length}
                   </span>
                 </span>
-                <span className="text-[10px] text-[#94A3B8]">All elements will be editable on canvas</span>
+                <span className="text-[10px] text-[#94A3B8]">Elements are formatted into editable canvas layers</span>
               </div>
 
               {detectedImportFields.length === 0 ? (
                 <span className="text-[11px] text-[#94A3B8] italic block">
-                  Paste SVG, HTML, or JSON code. Elements will be decomposed into editable shapes, text, images, and fields.
+                  Select a file (.html, .css, .svg, .pdf, .json) or paste code above. Formatting, layers, fonts, and colors will be extracted automatically.
                 </span>
               ) : (
                 <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
@@ -3338,7 +3429,7 @@ export default function TemplateDesignerCanvas({
                       >
                         <span>{typeIcon}</span>
                         <span className="truncate max-w-[100px]">{df.label}</span>
-                        <span className="text-[#94A3B8] font-mono text-[8px]">{df.itemType}</span>
+                        <span className="text-[#94A3B8] font-mono text-[8px]">{df.itemType} • z{df.zIndex || idx + 1}</span>
                       </span>
                     );
                   })}
@@ -3357,7 +3448,7 @@ export default function TemplateDesignerCanvas({
                 onClick={handleImportCode}
                 className="px-5 py-2 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-bold shadow-xs transition-all"
               >
-                Import & Add to Canvas ({detectedImportFields.length} Elements)
+                Import & Apply to Canvas ({detectedImportFields.length} Layers)
               </button>
             </div>
           </div>
